@@ -44,8 +44,25 @@ export default function SchedulePage() {
   const [saving, setSaving] = useState(false);
   const [groupFilter, setGroupFilter] = useState<string>("");
   const [editing, setEditing] = useState<EditingEntry | null>(null);
+  const [weekOffset, setWeekOffset] = useState(0); // 0 = текущая неделя
 
   const canEdit = user?.role === "admin";
+
+  // Даты понедельника..субботы выбранной недели
+  const weekDates = useMemo(() => {
+    const base = new Date();
+    base.setHours(0, 0, 0, 0);
+    const daysSinceMonday = (base.getDay() + 6) % 7;
+    const monday = new Date(base);
+    monday.setDate(base.getDate() - daysSinceMonday + weekOffset * 7);
+    return DAYS.map((_, i) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      return d;
+    });
+  }, [weekOffset]);
+
+  const todayKey = new Date().toDateString();
 
   const reload = () =>
     Promise.all([
@@ -184,16 +201,40 @@ export default function SchedulePage() {
         )}
       </div>
 
+      {/* Навигация по неделям */}
+      <div className="week-nav">
+        <Button variant="ghost" size="sm" onClick={() => setWeekOffset((w) => w - 1)}>
+          ← Пред. неделя
+        </Button>
+        <div className="week-nav__label">
+          {weekRangeLabel(weekDates)}
+          {weekOffset !== 0 && (
+            <button className="week-nav__today" onClick={() => setWeekOffset(0)}>
+              Текущая неделя
+            </button>
+          )}
+        </div>
+        <Button variant="ghost" size="sm" onClick={() => setWeekOffset((w) => w + 1)}>
+          След. неделя →
+        </Button>
+      </div>
+
       <div
         className="schedule"
         style={{ gridTemplateColumns: `90px repeat(${DAYS.length}, 1fr)` }}
       >
         <div className="schedule__head">№ / время</div>
-        {DAYS.map((d) => (
-          <div className="schedule__head" key={d}>
-            {d}
-          </div>
-        ))}
+        {DAYS.map((d, i) => {
+          const date = weekDates[i];
+          const isToday = date.toDateString() === todayKey;
+          return (
+            <div className={"schedule__head" + (isToday ? " schedule__head--today" : "")} key={d}>
+              {d}
+              <span className="schedule__head-date">{fmtDay(date)}</span>
+              {isToday && <span className="schedule__today-badge">сегодня</span>}
+            </div>
+          );
+        })}
 
         {Array.from({ length: maxLesson }).map((_, i) => {
           const lesson = i + 1;
@@ -210,6 +251,8 @@ export default function SchedulePage() {
               canEdit={canEdit}
               onNew={openNew}
               onEdit={openEdit}
+              weekDates={weekDates}
+              todayKey={todayKey}
             />
           );
         })}
@@ -322,6 +365,8 @@ function Row({
   canEdit,
   onNew,
   onEdit,
+  weekDates,
+  todayKey,
 }: {
   lesson: number;
   time: string;
@@ -333,6 +378,8 @@ function Row({
   canEdit: boolean;
   onNew: (day: 1 | 2 | 3 | 4 | 5 | 6, lesson: number) => void;
   onEdit: (entry: ScheduleEntry) => void;
+  weekDates: Date[];
+  todayKey: string;
 }) {
   return (
     <>
@@ -343,12 +390,15 @@ function Row({
       </div>
       {Array.from({ length: days }).map((_, i) => {
         const day = (i + 1) as 1 | 2 | 3 | 4 | 5 | 6;
+        const isToday = weekDates[i]?.toDateString() === todayKey;
         const item = schedule.find((s) => s.dayOfWeek === day && s.lessonNumber === lesson);
         if (!item) {
           return (
             <div
               key={day}
-              className="schedule__cell schedule__cell--empty"
+              className={
+                "schedule__cell schedule__cell--empty" + (isToday ? " schedule__cell--today" : "")
+              }
               style={canEdit ? { cursor: "pointer", display: "grid", placeItems: "center" } : undefined}
               onClick={canEdit ? () => onNew(day, lesson) : undefined}
               title={canEdit ? "Добавить занятие" : undefined}
@@ -364,7 +414,7 @@ function Row({
         return (
           <div
             key={day}
-            className="schedule__cell"
+            className={"schedule__cell" + (isToday ? " schedule__cell--today" : "")}
             style={canEdit ? { cursor: "pointer" } : undefined}
             onClick={canEdit ? () => onEdit(item) : undefined}
             title={canEdit ? "Изменить" : undefined}
@@ -379,4 +429,22 @@ function Row({
       })}
     </>
   );
+}
+
+const MONTHS = [
+  "января", "февраля", "марта", "апреля", "мая", "июня",
+  "июля", "августа", "сентября", "октября", "ноября", "декабря",
+];
+
+function fmtDay(d: Date): string {
+  return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function weekRangeLabel(dates: Date[]): string {
+  const from = dates[0];
+  const to = dates[dates.length - 1];
+  if (from.getMonth() === to.getMonth()) {
+    return `${from.getDate()}–${to.getDate()} ${MONTHS[to.getMonth()]} ${to.getFullYear()}`;
+  }
+  return `${from.getDate()} ${MONTHS[from.getMonth()]} — ${to.getDate()} ${MONTHS[to.getMonth()]} ${to.getFullYear()}`;
 }
